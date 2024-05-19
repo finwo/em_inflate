@@ -1,1 +1,1 @@
-SRC+=__DIRNAME/lib/em_inflate.c
+SRC+=__DIRNAME/src/em_inflate.c
