@@ -1,20 +1,22 @@
 CC=cc
-CFLAGS=-O3 -fomit-frame-pointer -Ilib -Iexample
+CFLAGS=-O3 -fomit-frame-pointer -Isrc -Iexample
 OBJDIR=obj
 LDFLAGS=
+
+include lib/.dep/config.mk
 
 $(OBJDIR)/%.o: example/../%.c
 	@mkdir -p '$(@D)'
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/%.o: lib/../%.c
+$(OBJDIR)/%.o: src/../%.c
 	@mkdir -p '$(@D)'
 	$(CC) $(CFLAGS) -c $< -o $@
 
 APP := em_inflate
 
 OBJS := $(OBJDIR)/example/main.o
-OBJS += $(OBJDIR)/lib/em_inflate.o
+OBJS += $(OBJDIR)/src/em_inflate.o
 
 all: $(APP)
 
