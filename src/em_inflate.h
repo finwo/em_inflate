@@ -18,6 +18,13 @@
  * 2. Altered source versions must be plainly marked as such, and must not be
  *    misrepresented as being the original software.
  * 3. This notice may not be removed or altered from any source distribution.
+ *
+ * CHANGELOG
+ *
+ *    2024-05-19 Finwo
+ *      - Move source files from lib/ to src/
+ *      - Auto-formatting of source files
+ *      - Using dynamic buffer as decompression target
  */
 
 #ifndef _EM_INFLATE_H
@@ -26,6 +33,8 @@
 #include <sys/types.h>
 #include <stdlib.h>
 
+#include "tidwall/buf.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -33,14 +42,11 @@ extern "C" {
 /**
  * Inflate gzip or zlib data
  *
- * @param pCompressedData pointer to start of zlib data
- * @param nCompressedDataSize size of zlib data, in bytes
- * @param pOutData pointer to start of decompression buffer
- * @param nMaxOutDataSize maximum size of decompression buffer, in bytes
+ * @param compressed  pointer to a buffer containing the compressed data
  *
- * @return number of bytes decompressed, or -1 in case of an error
+ * @return pointer to a buffer containing the decompressed data, or NULL in case of an error
  */
-size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsigned char *pOutData, size_t nMaxOutDataSize);
+struct buf * em_inflate(const struct buf *compressed);
 
 #ifdef __cplusplus
 }

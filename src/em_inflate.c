@@ -26,6 +26,9 @@
 #include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "tidwall/buf.h"
+
 #include "em_inflate.h"
 
 /* Comment out this define to disable checksum verification */
@@ -450,7 +453,7 @@ static int em_lsb_huffman_decoder_read_var_lengths(em_lsb_huffman_decoder_t *pTa
 
 /*-- zlib stored blocks copier --*/
 
-static size_t em_inflate_copy_stored(em_lsb_bitreader_t *pBitReader, unsigned char *pOutData, size_t nOutDataOffset, size_t nBlockMaxSize) {
+static size_t em_inflate_copy_stored(em_lsb_bitreader_t *pBitReader, struct buf *inflated) {
    /* Align on byte */
    if (em_lsb_bitreader_byte_align(pBitReader) < 0)
       return -1;
@@ -467,11 +470,8 @@ static size_t em_inflate_copy_stored(em_lsb_bitreader_t *pBitReader, unsigned ch
    /* Make sure that the len and the two's complement match */
    if (nStoredLen != ((~nNegStoredLen) & 0xffff)) return -1;
 
-   /* Make sure there is room */
-   if (nStoredLen > nBlockMaxSize) return -1;
-
    /* Copy stored data */
-   memcpy(pOutData + nOutDataOffset, pBitReader->pInBlock, nStoredLen);
+   buf_append(inflated, (const char *) pBitReader->pInBlock, nStoredLen);
    pBitReader->pInBlock += nStoredLen;
 
    return (size_t)nStoredLen;
@@ -516,13 +516,14 @@ static const unsigned int em_inflate_offset_code[NOFFSETSYMS] = {
  * @param nOutDataOffset starting index of where to store decompressed bytes in output buffer (and size of previously decompressed bytes)
  * @param nBlockMaxSize total size of output decompression buffer, in bytes
  *
- * @return size of decompressed data in bytes, or -1 for error
+ * @return decompressed block size on success, -1 on error
  */
-static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nDynamicBlock, unsigned char *pOutData, size_t nOutDataOffset, size_t nBlockMaxSize) {
+static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nDynamicBlock, struct buf *inflated) {
    em_lsb_huffman_decoder_t literalsDecoder;
    em_lsb_huffman_decoder_t offsetDecoder;
    unsigned int nLiteralsRevSymbolTable[NLITERALSYMS * 2];
    unsigned int nOffsetRevSymbolTable[NOFFSETSYMS * 2];
+   size_t originalLength = inflated->len;
    int i;
 
    if (nDynamicBlock) {
@@ -617,9 +618,9 @@ static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nD
 
    /* Finally, loop to read all the literals/match len codewords in the block to decompress it */
 
-   unsigned char *pCurOutData = pOutData + nOutDataOffset;
-   const unsigned char *pOutDataEnd = pCurOutData + nBlockMaxSize;
-   const unsigned char *pOutDataFastEnd = pOutDataEnd - 15;
+   /*unsigned char *pCurOutData = pOutData + nOutDataOffset;*/
+   /*const unsigned char *pOutDataEnd = pCurOutData + nBlockMaxSize;*/
+   /*const unsigned char *pOutDataFastEnd = pOutDataEnd - 15;*/
 
    while (1) {
       em_lsb_bitreader_refill_32(pBitReader);
@@ -627,12 +628,8 @@ static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nD
       unsigned int nLiteralsCodeword = em_lsb_huffman_decoder_read_value(&literalsDecoder, nLiteralsRevSymbolTable, pBitReader);
       if (nLiteralsCodeword < 256) {
          /* 0..255: literal. copy. */
-         if (pCurOutData < pOutDataEnd)
-            *pCurOutData++ = nLiteralsCodeword;
-         else
-            return -1;
-      }
-      else {
+         buf_append_byte(inflated, nLiteralsCodeword);
+      } else {
          if (nLiteralsCodeword == NEODMARKERSYM) break;     /* EOD marker, all done */
          if (nLiteralsCodeword == -1) return -1;
 
@@ -655,35 +652,13 @@ static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nD
 
          /* Copy match */
 
-         const unsigned char *pSrc = pCurOutData - nMatchOffset;
-         if (pSrc >= pOutData) {
-            if (nMatchOffset >= 16 && (pCurOutData + nMatchLen) <= pOutDataFastEnd) {
-               const unsigned char *pCopySrc = pSrc;
-               unsigned char *pCopyDst = pCurOutData;
-               const unsigned char *pCopyEndDst = pCurOutData + nMatchLen;
-
-               do {
-                  memcpy(pCopyDst, pCopySrc, 16);
-                  pCopySrc += 16;
-                  pCopyDst += 16;
-               } while (pCopyDst < pCopyEndDst);
-
-               pCurOutData += nMatchLen;
-            }
-            else {
-               if ((pCurOutData + nMatchLen) > pOutDataEnd) return -1;
-
-               while (nMatchLen--) {
-                  *pCurOutData++ = *pSrc++;
-               }
-            }
-         }
-         else
-            return -1;
+         const char *pSrc = inflated->data + inflated->len - nMatchOffset;
+         if (pSrc < (inflated->data)) return -1;
+         buf_append(inflated, pSrc, nMatchLen);
       }
    }
 
-   return (size_t)(pCurOutData - (pOutData + nOutDataOffset));
+   return inflated->len - originalLength;
 }
 
 /*-- zlib adler32 calculation --*/
@@ -725,7 +700,8 @@ static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nD
 #  define MOD28(a) a %= BASE
 #  define MOD63(a) a %= BASE
 
-static unsigned int em_inflate_adler32_z(unsigned int adler, const unsigned char *buf, size_t len) {
+static unsigned int em_inflate_adler32_z(unsigned int adler, const void *buf, size_t len) {
+   const char *pBuf = buf;
    unsigned long sum2;
    unsigned n;
 
@@ -735,7 +711,7 @@ static unsigned int em_inflate_adler32_z(unsigned int adler, const unsigned char
 
    /* in case user likes doing a byte at a time, keep it fast */
    if (len == 1) {
-      adler += buf[0];
+      adler += pBuf[0];
       if (adler >= BASE)
          adler -= BASE;
       sum2 += adler;
@@ -745,13 +721,13 @@ static unsigned int em_inflate_adler32_z(unsigned int adler, const unsigned char
    }
 
    /* initial Adler-32 value (deferred check for len == 1 speed) */
-   if (buf == NULL)
+   if (pBuf == NULL)
       return 1L;
 
    /* in case short lengths are provided, keep it somewhat fast */
    if (len < 16) {
       while (len--) {
-         adler += *buf++;
+         adler += *pBuf++;
          sum2 += adler;
       }
       if (adler >= BASE)
@@ -765,8 +741,8 @@ static unsigned int em_inflate_adler32_z(unsigned int adler, const unsigned char
       len -= NMAX;
       n = NMAX / 16;          /* NMAX is divisible by 16 */
       do {
-         DO16(buf);          /* 16 sums unrolled */
-         buf += 16;
+         DO16(pBuf);          /* 16 sums unrolled */
+         pBuf += 16;
       } while (--n);
       MOD(adler);
       MOD(sum2);
@@ -776,11 +752,11 @@ static unsigned int em_inflate_adler32_z(unsigned int adler, const unsigned char
    if (len) {                  /* avoid modulos if none remaining */
       while (len >= 16) {
          len -= 16;
-         DO16(buf);
-         buf += 16;
+         DO16(pBuf);
+         pBuf += 16;
       }
       while (len--) {
-         adler += *buf++;
+         adler += *pBuf++;
          sum2 += adler;
       }
       MOD(adler);
@@ -1015,30 +991,29 @@ typedef enum { EM_INFLATE_CHECKSUM_NONE = 0, EM_INFLATE_CHECKSUM_GZIP, EM_INFLAT
 /**
  * Inflate gzip or zlib data
  *
- * @param pCompressedData pointer to start of zlib data
- * @param nCompressedDataSize size of zlib data, in bytes
- * @param pOutData pointer to start of decompression buffer
- * @param nMaxOutDataSize maximum size of decompression buffer, in bytes
+ * @param compressed  pointer to a buffer containing the compressed data
  *
- * @return number of bytes decompressed, or -1 in case of an error
+ * @return pointer to a buffer containing the decompressed data, or NULL in case of an error
  */
-size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsigned char *pOutData, size_t nMaxOutDataSize) {
-   const unsigned char *pCurCompressedData = (const unsigned char *)pCompressedData;
-   const unsigned char *pEndCompressedData = pCurCompressedData + nCompressedDataSize;
+struct buf * em_inflate(const struct buf *compressed) {
+   struct buf *inflated = calloc(1, sizeof(struct buf));
+
+   const unsigned char *pCurCompressedData = (const unsigned char *)(compressed->data);
+   const unsigned char *pEndCompressedData = pCurCompressedData + (compressed->len);
    em_lsb_bitreader_t bitReader;
    unsigned int nIsFinalBlock;
    size_t nCurOutOffset;
    em_inflate_checksum_type_t nCheckSumType = EM_INFLATE_CHECKSUM_NONE;
    unsigned long nCheckSum = 0;
 
-   if ((pCurCompressedData + 2) > pEndCompressedData) return -1;
+   if ((pCurCompressedData + 2) > pEndCompressedData) return NULL;
 
    /* Check header */
    if (pCurCompressedData[0] == 0x1f && pCurCompressedData[1] == 0x8b) {
       /* gzip wrapper */
       pCurCompressedData += 2;
       if ((pCurCompressedData + 8) > pEndCompressedData || pCurCompressedData[0] != 0x08 /* deflate */)
-         return -1;
+         return NULL;
       pCurCompressedData++;
 
       /* Read flags and skip over the rest of the header */
@@ -1046,40 +1021,39 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
       pCurCompressedData += 6;
 
       if (flags & 0x02) {  /* Part number present */
-         if ((pCurCompressedData + 2) > pEndCompressedData) return -1;
+         if ((pCurCompressedData + 2) > pEndCompressedData) return NULL;
          pCurCompressedData += 2;
       }
 
       if (flags & 0x04) {  /* Extra field present, starts with two-byte length */
-         if ((pCurCompressedData + 2) > pEndCompressedData) return -1;
+         if ((pCurCompressedData + 2) > pEndCompressedData) return NULL;
          unsigned short nExtraFieldLen = ((unsigned short)pCurCompressedData[0]) | (((unsigned short)pCurCompressedData[1]) << 8);
          pCurCompressedData += 2;
 
-         if ((pCurCompressedData + nExtraFieldLen) > pEndCompressedData) return -1;
+         if ((pCurCompressedData + nExtraFieldLen) > pEndCompressedData) return NULL;
          pCurCompressedData += nExtraFieldLen;
       }
 
       if (flags & 0x08) {  /* Original filename present, zero terminated */
          do {
-            if (pCurCompressedData >= pEndCompressedData) return -1;
+            if (pCurCompressedData >= pEndCompressedData) return NULL;
             pCurCompressedData++;
          } while (pCurCompressedData[-1]);
       }
 
       if (flags & 0x10) {  /* File comment present, zero terminated */
          do {
-            if (pCurCompressedData >= pEndCompressedData) return -1;
+            if (pCurCompressedData >= pEndCompressedData) return NULL;
             pCurCompressedData++;
          } while (pCurCompressedData[-1]);
       }
 
       if (flags & 0x20) {  /* Encryption header present */
-         return -1;
+         return NULL;
       }
 
       nCheckSumType = EM_INFLATE_CHECKSUM_GZIP;
-   }
-   else if ((pCurCompressedData[0] & 0x0f) == 0x08) {
+   } else if ((pCurCompressedData[0] & 0x0f) == 0x08) {
       /* zlib wrapper? */
       unsigned char CMF = pCurCompressedData[0];
       unsigned char FLG = pCurCompressedData[1];
@@ -1089,7 +1063,7 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
          /* Looks like a valid zlib wrapper */
          pCurCompressedData += 2;
          if (FLG & 0x20) { /* Preset dictionary present */
-            if ((pCurCompressedData + 4) > pEndCompressedData) return -1;
+            if ((pCurCompressedData + 4) > pEndCompressedData) return NULL;
             pCurCompressedData += 4;
          }
       }
@@ -1118,29 +1092,29 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
 
       switch (nBlockType) {
       case 0:  /* Stored */
-         nBlockResult = em_inflate_copy_stored(&bitReader, pOutData, nCurOutOffset, nMaxOutDataSize - nCurOutOffset);
+         nBlockResult = em_inflate_copy_stored(&bitReader, inflated);
          break;
 
       case 1:  /* Static huffman */
-         nBlockResult = em_inflate_decompress_block(&bitReader, 0 /* static */, pOutData, nCurOutOffset, nMaxOutDataSize - nCurOutOffset);
+         nBlockResult = em_inflate_decompress_block(&bitReader, 0 /* static */, inflated);
          break;
 
       case 2:  /* Dynamic huffman */
-         nBlockResult = em_inflate_decompress_block(&bitReader, 1 /* dynamic */, pOutData, nCurOutOffset, nMaxOutDataSize - nCurOutOffset);
+         nBlockResult = em_inflate_decompress_block(&bitReader, 1 /* dynamic */, inflated);
          break;
 
       case 3:  /* Invalid */
-         return -1;
+         return NULL;
       }
 
-      if (nBlockResult == -1) return -1;
+      if (nBlockResult == -1) return NULL;
 
 #ifdef EM_INFLATE_VERIFY_CHECKSUM
       /* Update checksum with the decompressed block's contents */
       if (nCheckSumType == EM_INFLATE_CHECKSUM_GZIP)
-         nCheckSum = em_inflate_crc32_4bytes(pOutData + nCurOutOffset, nBlockResult, nCheckSum);
+         nCheckSum = em_inflate_crc32_4bytes(inflated->data + inflated->len - nBlockResult, nBlockResult, nCheckSum);
       else if (nCheckSumType == EM_INFLATE_CHECKSUM_ZLIB)
-         nCheckSum = em_inflate_adler32_z(nCheckSum, pOutData + nCurOutOffset, nBlockResult);
+         nCheckSum = em_inflate_adler32_z(nCheckSum, inflated->data + inflated->len - nBlockResult, nBlockResult);
 #endif /* EM_INFLATE_VERIFY_CHECKSUM */
 
       nCurOutOffset += nBlockResult;
@@ -1156,22 +1130,22 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
    unsigned int nStoredCheckSum;
    switch (nCheckSumType) {
    case EM_INFLATE_CHECKSUM_GZIP:   /* gzip - little endian crc32 */
-      if ((pCurCompressedData + 4) > pEndCompressedData) return -1;
+      if ((pCurCompressedData + 4) > pEndCompressedData) return NULL;
       nStoredCheckSum = ((unsigned int)pCurCompressedData[0]);
       nStoredCheckSum |= ((unsigned int)pCurCompressedData[1]) << 8;
       nStoredCheckSum |= ((unsigned int)pCurCompressedData[2]) << 16;
       nStoredCheckSum |= ((unsigned int)pCurCompressedData[3]) << 24;
-      if (nStoredCheckSum != nCheckSum) return -1;
+      if (nStoredCheckSum != nCheckSum) return NULL;
       /* pCurCompressedData += 4; */
       break;
 
    case EM_INFLATE_CHECKSUM_ZLIB:   /* zlib - big endian adler32 */
-      if ((pCurCompressedData + 4) > pEndCompressedData) return -1;
+      if ((pCurCompressedData + 4) > pEndCompressedData) return NULL;
       nStoredCheckSum = ((unsigned int)pCurCompressedData[0]) << 24;
       nStoredCheckSum |= ((unsigned int)pCurCompressedData[1]) << 16;
       nStoredCheckSum |= ((unsigned int)pCurCompressedData[2]) << 8;
       nStoredCheckSum |= ((unsigned int)pCurCompressedData[3]);
-      if (nStoredCheckSum != nCheckSum) return -1;
+      if (nStoredCheckSum != nCheckSum) return NULL;
       /* pCurCompressedData += 4; */
       break;
 
@@ -1181,5 +1155,5 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
 #endif /* EM_INFLATE_VERIFY_CHECKSUM */
 
    /* Success, return decompressed size */
-   return nCurOutOffset;
+   return inflated;
 }

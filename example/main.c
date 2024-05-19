@@ -24,11 +24,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <memory.h>
+
+#include "tidwall/buf.h"
+
 #include "em_inflate.h"
 
 int main(int argc, char **argv) {
-   unsigned char *pCompressedData, *pOutData;
-   size_t nCompressedDataSize, nMaxOutDataSize, nActualOutDataSize;
+   unsigned char *pCompressedData;
+   size_t nCompressedDataSize;
    FILE *f;
 
    if (argc != 3) {
@@ -68,44 +71,41 @@ int main(int argc, char **argv) {
 
    /* Decompress */
 
-   nMaxOutDataSize = 200000000;
-   pOutData = (unsigned char*)malloc(nMaxOutDataSize);
-   if (!pOutData) {
-      fprintf(stderr, "out of memory, %zu bytes needed\n", nMaxOutDataSize);
-      free(pCompressedData);
+   struct buf *inflated = em_inflate(&(struct buf){
+      .data = (void*)pCompressedData,
+      .len  = nCompressedDataSize,
+   });
+
+   if (!inflated) {
+      fprintf(stderr, "Error inflating data\n");
       return 100;
    }
 
-   nActualOutDataSize = em_inflate(pCompressedData, nCompressedDataSize, pOutData, nMaxOutDataSize);
-   if (nActualOutDataSize == -1) {
-      fprintf(stderr, "decompression error\n");
-      free(pOutData);
-      free(pCompressedData);
-      return 100;
-   }
-
-   fprintf(stdout, "decompressed %zu bytes\n", nActualOutDataSize);
+   fprintf(stdout, "decompressed %zu bytes\n", inflated->len);
 
    /* Write decompressed file out all at once */
 
    f = fopen(argv[2], "wb");
    if (!f) {
-      free(pOutData);
+      buf_clear(inflated);
+      free(inflated);
       free(pCompressedData);
       fprintf(stderr, "error opening '%s' for writing\n", argv[1]);
       return 100;
    }
 
-   if (fwrite(pOutData, 1, nActualOutDataSize, f) != nActualOutDataSize) {
+   if (fwrite(inflated->data, 1, inflated->len, f) != inflated->len) {
       fclose(f);
-      free(pOutData);
+      buf_clear(inflated);
+      free(inflated);
       free(pCompressedData);
       fprintf(stderr, "I/O error writing '%s'\n", argv[1]);
       return 100;
    }
 
    fclose(f);
-   free(pOutData);
+   buf_clear(inflated);
+   free(inflated);
    free(pCompressedData);
 
    return 0;
