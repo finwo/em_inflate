@@ -1,3 +1,7 @@
 /lib/
 *.o
 /em_inflate
+/.cache/
+/test
+/test.gz
+/compile_commands.json
