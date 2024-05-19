@@ -329,7 +329,7 @@ static inline unsigned int em_lsb_huffman_decoder_read_value(em_lsb_huffman_deco
    }
 
    /* The symbol len is larger than NFASTSYMBOLBITS, decode using the slower path. By definition, the more frequent symbols are shorter and in the fast path. */
-   
+
    const unsigned int *nRevCodeLengthTable = pRevSymbolTable + pDecoder->nSymbols;
    unsigned int nCodeWord = 0;
    int nBits = 1;
@@ -473,7 +473,7 @@ static size_t em_inflate_copy_stored(em_lsb_bitreader_t *pBitReader, unsigned ch
    /* Copy stored data */
    memcpy(pOutData + nOutDataOffset, pBitReader->pInBlock, nStoredLen);
    pBitReader->pInBlock += nStoredLen;
-   
+
    return (size_t)nStoredLen;
 }
 
@@ -491,11 +491,11 @@ static size_t em_inflate_copy_stored(em_lsb_bitreader_t *pBitReader, unsigned ch
 
 /** Base value and number of extra displacement bits for each match length codeword */
 static const unsigned int em_inflate_matchlen_code[NMATCHLENSYMS] = {
-   MATCHLEN_PAIR(MIN_MATCH_SIZE + 0, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 1, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 2, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 3, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 4, 0), 
+   MATCHLEN_PAIR(MIN_MATCH_SIZE + 0, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 1, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 2, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 3, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 4, 0),
    MATCHLEN_PAIR(MIN_MATCH_SIZE + 5, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 6, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 7, 0), MATCHLEN_PAIR(MIN_MATCH_SIZE + 8, 1), MATCHLEN_PAIR(MIN_MATCH_SIZE + 10, 1),
-   MATCHLEN_PAIR(MIN_MATCH_SIZE + 12, 1), MATCHLEN_PAIR(MIN_MATCH_SIZE + 14, 1), MATCHLEN_PAIR(MIN_MATCH_SIZE + 16, 2), MATCHLEN_PAIR(MIN_MATCH_SIZE + 20, 2), MATCHLEN_PAIR(MIN_MATCH_SIZE + 24, 2), 
+   MATCHLEN_PAIR(MIN_MATCH_SIZE + 12, 1), MATCHLEN_PAIR(MIN_MATCH_SIZE + 14, 1), MATCHLEN_PAIR(MIN_MATCH_SIZE + 16, 2), MATCHLEN_PAIR(MIN_MATCH_SIZE + 20, 2), MATCHLEN_PAIR(MIN_MATCH_SIZE + 24, 2),
    MATCHLEN_PAIR(MIN_MATCH_SIZE + 28, 2), MATCHLEN_PAIR(MIN_MATCH_SIZE + 32, 3), MATCHLEN_PAIR(MIN_MATCH_SIZE + 40, 3), MATCHLEN_PAIR(MIN_MATCH_SIZE + 48, 3), MATCHLEN_PAIR(MIN_MATCH_SIZE + 56, 3),
-   MATCHLEN_PAIR(MIN_MATCH_SIZE + 64, 4), MATCHLEN_PAIR(MIN_MATCH_SIZE + 80, 4), MATCHLEN_PAIR(MIN_MATCH_SIZE + 96, 4), MATCHLEN_PAIR(MIN_MATCH_SIZE + 112, 4), MATCHLEN_PAIR(MIN_MATCH_SIZE + 128, 5), 
+   MATCHLEN_PAIR(MIN_MATCH_SIZE + 64, 4), MATCHLEN_PAIR(MIN_MATCH_SIZE + 80, 4), MATCHLEN_PAIR(MIN_MATCH_SIZE + 96, 4), MATCHLEN_PAIR(MIN_MATCH_SIZE + 112, 4), MATCHLEN_PAIR(MIN_MATCH_SIZE + 128, 5),
    MATCHLEN_PAIR(MIN_MATCH_SIZE + 160, 5), MATCHLEN_PAIR(MIN_MATCH_SIZE + 192, 5), MATCHLEN_PAIR(MIN_MATCH_SIZE + 224, 5), MATCHLEN_PAIR(MIN_MATCH_SIZE + 255, 0),
 };
 
@@ -635,7 +635,7 @@ static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nD
       else {
          if (nLiteralsCodeword == NEODMARKERSYM) break;     /* EOD marker, all done */
          if (nLiteralsCodeword == -1) return -1;
-         
+
          /* 256..284: match. decode match length. */
 
          unsigned int nMatchLen = em_lsb_bitreader_get_bits(pBitReader, (nLiteralsCodeword >> 16) & 15);
@@ -692,7 +692,7 @@ static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nD
 
 /*
   By Mark Adler - https://github.com/madler/zlib/blob/master/adler32.c
- 
+
   Copyright (C) 1995-2017 Jean-loup Gailly and Mark Adler
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -1045,12 +1045,12 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
       unsigned char flags = *pCurCompressedData++;
       pCurCompressedData += 6;
 
-      if (flags & 0x02) {  /* Part number present */         
+      if (flags & 0x02) {  /* Part number present */
          if ((pCurCompressedData + 2) > pEndCompressedData) return -1;
          pCurCompressedData += 2;
       }
 
-      if (flags & 0x04) {  /* Extra field present, starts with two-byte length */        
+      if (flags & 0x04) {  /* Extra field present, starts with two-byte length */
          if ((pCurCompressedData + 2) > pEndCompressedData) return -1;
          unsigned short nExtraFieldLen = ((unsigned short)pCurCompressedData[0]) | (((unsigned short)pCurCompressedData[1]) << 8);
          pCurCompressedData += 2;
@@ -1059,14 +1059,14 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
          pCurCompressedData += nExtraFieldLen;
       }
 
-      if (flags & 0x08) {  /* Original filename present, zero terminated */         
+      if (flags & 0x08) {  /* Original filename present, zero terminated */
          do {
             if (pCurCompressedData >= pEndCompressedData) return -1;
             pCurCompressedData++;
          } while (pCurCompressedData[-1]);
       }
 
-      if (flags & 0x10) {  /* File comment present, zero terminated */         
+      if (flags & 0x10) {  /* File comment present, zero terminated */
          do {
             if (pCurCompressedData >= pEndCompressedData) return -1;
             pCurCompressedData++;
@@ -1088,7 +1088,7 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
       if ((CMF >> 4) <= 7 && (nCheck % 31) == 0) {
          /* Looks like a valid zlib wrapper */
          pCurCompressedData += 2;
-         if (FLG & 0x20) { /* Preset dictionary present */            
+         if (FLG & 0x20) { /* Preset dictionary present */
             if ((pCurCompressedData + 4) > pEndCompressedData) return -1;
             pCurCompressedData += 4;
          }
@@ -1115,21 +1115,21 @@ size_t em_inflate(const void *pCompressedData, size_t nCompressedDataSize, unsig
 
       nIsFinalBlock = em_lsb_bitreader_get_bits(&bitReader, 1);
       nBlockType = em_lsb_bitreader_get_bits(&bitReader, 2);
-      
+
       switch (nBlockType) {
-      case 0:  /* Stored */         
+      case 0:  /* Stored */
          nBlockResult = em_inflate_copy_stored(&bitReader, pOutData, nCurOutOffset, nMaxOutDataSize - nCurOutOffset);
          break;
 
-      case 1:  /* Static huffman */         
+      case 1:  /* Static huffman */
          nBlockResult = em_inflate_decompress_block(&bitReader, 0 /* static */, pOutData, nCurOutOffset, nMaxOutDataSize - nCurOutOffset);
          break;
 
-      case 2:  /* Dynamic huffman */         
+      case 2:  /* Dynamic huffman */
          nBlockResult = em_inflate_decompress_block(&bitReader, 1 /* dynamic */, pOutData, nCurOutOffset, nMaxOutDataSize - nCurOutOffset);
          break;
 
-      case 3:  /* Invalid */         
+      case 3:  /* Invalid */
          return -1;
       }
 
