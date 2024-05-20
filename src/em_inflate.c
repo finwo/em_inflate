@@ -618,10 +618,6 @@ static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nD
 
    /* Finally, loop to read all the literals/match len codewords in the block to decompress it */
 
-   /*unsigned char *pCurOutData = pOutData + nOutDataOffset;*/
-   /*const unsigned char *pOutDataEnd = pCurOutData + nBlockMaxSize;*/
-   /*const unsigned char *pOutDataFastEnd = pOutDataEnd - 15;*/
-
    while (1) {
       em_lsb_bitreader_refill_32(pBitReader);
 
@@ -649,12 +645,27 @@ static size_t em_inflate_decompress_block(em_lsb_bitreader_t *pBitReader, int nD
          if (nMatchOffset == -1) return -1;
 
          nMatchOffset += (nOffsetCodeword & 0x7fff);
+         if (nMatchOffset > inflated->len) return -1;
 
          /* Copy match */
 
+         // Ensure the buffer has enough space for the blob
+         // Prevents re-allocation during append
+         if ( (inflated->cap - inflated->len) <= nMatchLen ) {
+            inflated->data = realloc(inflated->data, inflated->len + nMatchLen + 64);
+            inflated->cap  = inflated->len + nMatchLen + 64;
+         }
+
+         // Manual append, no safeguards
          const char *pSrc = inflated->data + inflated->len - nMatchOffset;
-         if (pSrc < (inflated->data)) return -1;
-         buf_append(inflated, pSrc, nMatchLen);
+         if (nMatchLen > 16) {
+            buf_append(inflated, pSrc, nMatchLen);
+         } else {
+            while(nMatchLen--) {
+               buf_append_byte(inflated, *pSrc++);
+            }
+         }
+
       }
    }
 
@@ -1006,7 +1017,7 @@ struct buf * em_inflate(const struct buf *compressed) {
    em_inflate_checksum_type_t nCheckSumType = EM_INFLATE_CHECKSUM_NONE;
    unsigned long nCheckSum = 0;
 
-   if ((pCurCompressedData + 2) > pEndCompressedData) return NULL;
+   if (compressed->len < 2) return NULL;
 
    /* Check header */
    if (pCurCompressedData[0] == 0x1f && pCurCompressedData[1] == 0x8b) {
